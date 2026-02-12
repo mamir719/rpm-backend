@@ -329,7 +329,7 @@ async function login(req, res) {
       // ✅ Set secure cookies
       res.cookie("token", accessToken, {
         httpOnly: true,
-        secure: true, // PRODUCTION: true for HTTPS
+        secure: false, // PRODUCTION: true for HTTPS
         sameSite: "none", // PRODUCTION: none for cross-site
         maxAge: 45 * 60 * 1000, // 45 minutes
       });

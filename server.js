@@ -1,10 +1,3 @@
-// // server.js
-// require("dotenv").config();
-
-// const express = require("express");
-// const http = require("http");
-// const cookieParser = require("cookie-parser");
-// const { initializeSocket } = require("./socket/socketServer");
 
 // const devDataRoutes = require("./routes/deviceData.routes");
 // const authRoutes = require("./routes/auth.routes");
@@ -141,6 +134,7 @@
 
 // server.js - COMPLETE UPDATED VERSION
 require("dotenv").config();
+console.log("Environment updated to:", process.env.NODE_ENV);
 
 const express = require("express");
 const http = require("http");
@@ -308,8 +302,7 @@ if (process.env.NODE_ENV === "development") {
 
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
   console.log(
-    `✅ Swagger docs available at http://localhost:${
-      process.env.PORT || 4000
+    `✅ Swagger docs available at http://localhost:${process.env.PORT || 4000
     }/api-docs`
   );
 }
@@ -327,8 +320,7 @@ server.listen(port, "0.0.0.0", () => {
   console.log(`🚀 Server started on port ${port}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
   console.log(
-    `🔌 Socket path: ${
-      process.env.NODE_ENV === "production" ? "/rpm-be/socket.io" : "/socket.io"
+    `🔌 Socket path: ${process.env.NODE_ENV === "production" ? "/rpm-be/socket.io" : "/socket.io"
     }`
   );
   console.log(`🏥 Health check: http://localhost:${port}/health`);
