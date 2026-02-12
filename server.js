@@ -163,41 +163,81 @@ app.use(cookieParser());
 app.set("trust proxy", true);
 
 // Enhanced CORS configuration
+// const allowedOrigins = [
+//   "http://localhost:5174",
+//   "http://localhost:5173",
+//   "http://localhost:5175",
+//   "http://50.18.96.20",
+//   "https://rmtrpm.duckdns.org",
+//   "https://rmtrpm.duckdns.org/rpm",
+//   "http://rmtrpm.duckdns.org",
+//   "http://18.221.174.173",
+// ];
+
+// const cors = require("cors");
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       // Allow requests with no origin
+//       if (!origin) return callback(null, true);
+
+//       // Allow all subdomains of duckdns.org and localhost
+//       if (origin.includes("duckdns.org") || origin.includes("localhost")) {
+//         return callback(null, true);
+//       }
+
+//       if (allowedOrigins.indexOf(origin) !== -1) {
+//         return callback(null, true);
+//       } else {
+//         console.log("🔒 CORS blocked origin:", origin);
+//         return callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
+//     credentials: true,
+//   })
+// );
+
+// Enhanced CORS configuration - works for localhost, EC2 IP, DuckDNS
 const allowedOrigins = [
-  "http://localhost:5174",
-  "http://localhost:5173",
-  "http://localhost:5175",
-  "http://50.18.96.20",
-  "https://rmtrpm.duckdns.org",
-  "https://rmtrpm.duckdns.org/rpm",
-  "http://rmtrpm.duckdns.org",
-  "http://18.221.174.173",
+  "localhost",
+  "127.0.0.1",
+  "18.221.174.173",       // EC2 public IP
+  "rmtrpm.duckdns.org"
 ];
 
 const cors = require("cors");
+
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin
+      // Allow requests with no origin (curl, Postman, mobile apps)
       if (!origin) return callback(null, true);
 
-      // Allow all subdomains of duckdns.org and localhost
-      if (origin.includes("duckdns.org") || origin.includes("localhost")) {
-        return callback(null, true);
-      }
+      // Parse origin host from full URL
+      try {
+        const url = new URL(origin);
+        const hostname = url.hostname;
 
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        return callback(null, true);
-      } else {
-        console.log("🔒 CORS blocked origin:", origin);
+        // Allow if hostname matches allowedOrigins
+        if (allowedOrigins.some(ao => hostname.includes(ao))) {
+          return callback(null, true);
+        }
+      } catch (err) {
+        console.log("🔒 Invalid origin URL:", origin);
         return callback(new Error("Not allowed by CORS"));
       }
+
+      console.log("🔒 CORS blocked origin:", origin);
+      return callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
     credentials: true,
   })
 );
+
 
 app.use(express.urlencoded({ extended: true }));
 
