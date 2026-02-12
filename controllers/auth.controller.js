@@ -330,14 +330,14 @@ async function login(req, res) {
       res.cookie("token", accessToken, {
         httpOnly: true,
         secure: false, // PRODUCTION: true for HTTPS
-        sameSite: "none", // PRODUCTION: none for cross-site
+        sameSite: "lax", // PRODUCTION: none for cross-site
         maxAge: 45 * 60 * 1000, // 45 minutes
       });
 
       res.cookie("refresh_token", refreshToken, {
         httpOnly: true,
-        secure: true, // PRODUCTION: true for HTTPS
-        sameSite: "none", // PRODUCTION: none for cross-site
+        secure: false, // PRODUCTION: true for HTTPS
+        sameSite: "lax", // PRODUCTION: none for cross-site
         maxAge: 14 * 24 * 60 * 60 * 1000, // 14 days
       });
 
@@ -492,16 +492,20 @@ async function logout(req, res) {
     // clear access token
     res.clearCookie("token", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      // secure: process.env.NODE_ENV === "production",
+      // sameSite: "strict",
+      secure: false,
+      sameSite: "lax",
       path: "/",
     });
 
     // clear refresh token
     res.clearCookie("refresh_token", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      // secure: process.env.NODE_ENV === "production",
+      // sameSite: "strict",
+      secure: false,
+      sameSite: "lax",
       path: "/",
     });
 

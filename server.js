@@ -171,6 +171,7 @@ const allowedOrigins = [
   "https://rmtrpm.duckdns.org",
   "https://rmtrpm.duckdns.org/rpm",
   "http://rmtrpm.duckdns.org",
+  "http://18.221.174.173",
 ];
 
 const cors = require("cors");
