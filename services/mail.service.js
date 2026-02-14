@@ -14,7 +14,7 @@ async function sendOtpEmail(to, otp) {
   console.log("OTP is", otp);
 
   await transporter.sendMail({
-    from: `"TwentyTwo RPM" <${process.env.GMAIL_USER}>`,
+    from: `"Vita RPM" <${process.env.GMAIL_USER}>`,
     to,
     subject: "Your OTP Code",
     text: `Your OTP code is: ${otp}`,

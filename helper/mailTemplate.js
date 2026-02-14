@@ -209,7 +209,7 @@ function getOtpEmailTemplate(otp) {
             </div>
             
             <div class="company-info">
-                <strong>TwentyTwo RPM</strong><br>
+                <strong>Vita RPM</strong><br>
                 Secure Authentication Service
             </div>
         </div>

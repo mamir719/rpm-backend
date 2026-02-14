@@ -49,6 +49,8 @@ app.set("trust proxy", true); // Required when behind Nginx/HTTPS
 //     credentials: true,
 //   })
 // );
+
+
 const allowedOrigin = process.env.CORS_ORIGINS; // reads https://vitarpm.codexterlabs.com
 
 app.use(
@@ -152,6 +154,9 @@ server.listen(port, "0.0.0.0", () => {
   console.log(`🏥 Health check: https://vitarpm.codexterlabs.com/health`);
   console.log(`🔧 Socket debug: https://vitarpm.codexterlabs.com/socket-debug`);
 });
+
+
+
 
 // // const devDataRoutes = require("./routes/deviceData.routes");
 // // const authRoutes = require("./routes/auth.routes");
