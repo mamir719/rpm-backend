@@ -1,48 +1,43 @@
+// server.js - Production-ready for https://vitarpm.codexterlabs.com
+require("dotenv").config();
 
-// const devDataRoutes = require("./routes/deviceData.routes");
-// const authRoutes = require("./routes/auth.routes");
-// const messageRoutes = require("./routes/messageRoutes");
-// const adminRoutes = require("./routes/admin.routes");
-// const swaggerUi = require("swagger-ui-express");
-// const settingsRoutes = require("./routes/settings.route");
-// const orgRoutes = require("./routes/org.routes");
-// const alertRoutes = require("./routes/alert.route");
-// const drRoutes = require("./routes/doctor.routes");
-// const patientRoutes = require("./routes/patient.routes");
-// const fs = require("fs");
-// const path = require("path");
+const express = require("express");
+const http = require("http");
+const cookieParser = require("cookie-parser");
+const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 
-// const app = express();
-// const server = http.createServer(app);
+const { initializeSocket, getIO } = require("./socket/socketServer");
 
-// app.use(express.json());
-// app.use(cookieParser());
-// app.set("trust proxy", true);
+const devDataRoutes = require("./routes/deviceData.routes");
+const authRoutes = require("./routes/auth.routes");
+const messageRoutes = require("./routes/messageRoutes");
+const adminRoutes = require("./routes/admin.routes");
+const settingsRoutes = require("./routes/settings.route");
+const orgRoutes = require("./routes/org.routes");
+const alertRoutes = require("./routes/alert.route");
+const drRoutes = require("./routes/doctor.routes");
+const patientRoutes = require("./routes/patient.routes");
+const emailRoutes = require("./routes/emailRoute");
 
-// // Enhanced CORS configuration
-// const allowedOrigins = [
-//   "http://localhost:5174",
-//   "http://localhost:5173",
-//   "http://localhost:5175",
-//   "http://50.18.96.20",
-//   "https://rmtrpm.duckdns.org",
-//   "https://rmtrpm.duckdns.org/rpm",
-//   "http://rmtrpm.duckdns.org",
-// ];
+const app = express();
+const server = http.createServer(app);
 
-// const cors = require("cors");
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.set("trust proxy", true); // Required when behind Nginx/HTTPS
+
+// Only allow your domain
+// const allowedOrigin = "https://vitarpm.codexterlabs.com";
+
 // app.use(
 //   cors({
 //     origin: function (origin, callback) {
-//       // Allow requests with no origin
-//       if (!origin) return callback(null, true);
-
-//       // Allow all subdomains of duckdns.org
-//       if (origin.includes("duckdns.org") || origin.includes("localhost")) {
-//         return callback(null, true);
-//       }
-
-//       if (allowedOrigins.indexOf(origin) !== -1) {
+//       if (!origin) return callback(null, true); // allow non-browser requests (Postman, curl)
+//       if (origin === allowedOrigin) {
 //         return callback(null, true);
 //       } else {
 //         console.log("🔒 CORS blocked origin:", origin);
@@ -54,6 +49,349 @@
 //     credentials: true,
 //   })
 // );
+const allowedOrigin = process.env.CORS_ORIGINS; // reads https://vitarpm.codexterlabs.com
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // allow Postman / curl
+      if (origin === allowedOrigin) {
+        return callback(null, true);
+      } else {
+        console.log("🔒 CORS blocked origin:", origin);
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
+    credentials: true,
+  })
+);
+
+
+// API routes
+app.use("/api/messages", messageRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/dev-data", devDataRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use("/api/alerts", alertRoutes);
+app.use("/api/doctor", drRoutes);
+app.use("/api/org", orgRoutes);
+app.use("/api/patient", patientRoutes);
+app.use("/api/email", emailRoutes);
+
+// Health check
+app.get("/health", (req, res) =>
+  res.json({
+    ok: true,
+    service: "rpm-api",
+    timestamp: new Date().toISOString(),
+    socket: "enabled",
+    environment: process.env.NODE_ENV,
+  })
+);
+
+// Socket debug endpoint
+app.get("/socket-debug", (req, res) => {
+  const io = getIO();
+  const connectedSockets = io.engine.clientsCount;
+
+  res.json({
+    ok: true,
+    message: "Socket.IO server debug info",
+    connected_clients: connectedSockets,
+    path: process.env.NODE_ENV === "production" ? "/rpm-be/socket.io" : "/socket.io",
+    transports: ["websocket", "polling"],
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+  });
+});
+
+// Test endpoint
+app.get("/rpm-be/test-socket", (req, res) => {
+  console.log("✅ Test endpoint hit - Backend is running");
+  console.log("🍪 Cookies:", req.headers.cookie);
+  console.log("📋 Headers:", req.headers);
+
+  res.json({
+    status: "running",
+    message: "Backend server is operational",
+    cookies: req.headers.cookie ? "Present" : "Missing",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Root redirect
+app.get("/", (req, res) => {
+  res.redirect("/health");
+});
+
+// Swagger (dev only)
+if (process.env.NODE_ENV === "development") {
+  const swaggerDocument = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "docs/swagger.json"), "utf8")
+  );
+  const swaggerUi = require("swagger-ui-express");
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+  console.log(`✅ Swagger docs available at http://localhost:${process.env.PORT || 4000}/api-docs`);
+}
+
+// 404 handler
+app.use((req, res) => res.status(404).json({ ok: false, message: "Not found" }));
+
+// Initialize Socket.io
+initializeSocket(server);
+
+// Server start
+const port = process.env.PORT || 4000;
+server.listen(port, "0.0.0.0", () => {
+  console.log(`🚀 Server started on port ${port}`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
+  console.log(`🔌 Socket path: ${process.env.NODE_ENV === "production" ? "/rpm-be/socket.io" : "/socket.io"}`);
+  console.log(`🏥 Health check: https://vitarpm.codexterlabs.com/health`);
+  console.log(`🔧 Socket debug: https://vitarpm.codexterlabs.com/socket-debug`);
+});
+
+// // const devDataRoutes = require("./routes/deviceData.routes");
+// // const authRoutes = require("./routes/auth.routes");
+// // const messageRoutes = require("./routes/messageRoutes");
+// // const adminRoutes = require("./routes/admin.routes");
+// // const swaggerUi = require("swagger-ui-express");
+// // const settingsRoutes = require("./routes/settings.route");
+// // const orgRoutes = require("./routes/org.routes");
+// // const alertRoutes = require("./routes/alert.route");
+// // const drRoutes = require("./routes/doctor.routes");
+// // const patientRoutes = require("./routes/patient.routes");
+// // const fs = require("fs");
+// // const path = require("path");
+
+// // const app = express();
+// // const server = http.createServer(app);
+
+// // app.use(express.json());
+// // app.use(cookieParser());
+// // app.set("trust proxy", true);
+
+// // // Enhanced CORS configuration
+// // const allowedOrigins = [
+// //   "http://localhost:5174",
+// //   "http://localhost:5173",
+// //   "http://localhost:5175",
+// //   "http://50.18.96.20",
+// //   "https://rmtrpm.duckdns.org",
+// //   "https://rmtrpm.duckdns.org/rpm",
+// //   "http://rmtrpm.duckdns.org",
+// // ];
+
+// // const cors = require("cors");
+// // app.use(
+// //   cors({
+// //     origin: function (origin, callback) {
+// //       // Allow requests with no origin
+// //       if (!origin) return callback(null, true);
+
+// //       // Allow all subdomains of duckdns.org
+// //       if (origin.includes("duckdns.org") || origin.includes("localhost")) {
+// //         return callback(null, true);
+// //       }
+
+// //       if (allowedOrigins.indexOf(origin) !== -1) {
+// //         return callback(null, true);
+// //       } else {
+// //         console.log("🔒 CORS blocked origin:", origin);
+// //         return callback(new Error("Not allowed by CORS"));
+// //       }
+// //     },
+// //     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+// //     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
+// //     credentials: true,
+// //   })
+// // );
+
+// // app.use(express.urlencoded({ extended: true }));
+
+// // // API routes - all under /rpm-be
+// // app.use("/api/messages", messageRoutes);
+// // app.use("/api/auth", authRoutes);
+// // app.use("/api/dev-data", devDataRoutes);
+// // app.use("/api/admin", adminRoutes);
+// // app.use("/api/settings", settingsRoutes);
+// // app.use("/api/alerts", alertRoutes);
+// // app.use("/api/doctor", drRoutes);
+// // app.use("/api/org", orgRoutes);
+// // app.use("/api/patient", patientRoutes);
+
+// // // Health check endpoint
+// // app.get("/health", (req, res) =>
+// //   res.json({
+// //     ok: true,
+// //     service: "rpm-api",
+// //     timestamp: new Date().toISOString(),
+// //     socket: "enabled",
+// //   })
+// // );
+
+// // // Add to your server.js
+// // app.get("/rpm-be/socket-debug", (req, res) => {
+// //   const io = getIO();
+// //   const connectedSockets = io.engine.clientsCount;
+
+// //   res.json({
+// //     ok: true,
+// //     message: "Socket.IO server debug info",
+// //     connected_clients: connectedSockets,
+// //     path: "/rpm-be/socket.io",
+// //     transports: ["websocket", "polling"],
+// //     timestamp: new Date().toISOString(),
+// //   });
+// // });
+
+// // // Root endpoint redirect
+// // app.get("/", (req, res) => {
+// //   res.redirect("/rpm-be/health");
+// // });
+
+// // // Swagger
+// // const swaggerDocument = JSON.parse(
+// //   fs.readFileSync(path.join(__dirname, "docs/swagger.json"), "utf8")
+// // );
+
+// // if (process.env.NODE_ENV === "development") {
+// //   app.use(
+// //     "/rpm-be/api-docs",
+// //     swaggerUi.serve,
+// //     swaggerUi.setup(swaggerDocument)
+// //   );
+// //   console.log(
+// //     `✅ Swagger docs available at http://localhost:${
+// //       process.env.PORT || 4000
+// //     }/rpm-be/api-docs`
+// //   );
+// // }
+
+// // // 404 handler
+// // app.use((req, res) =>
+// //   res.status(404).json({ ok: false, message: "Not found" })
+// // );
+
+// // // Initialize Socket.io with the correct path
+// // initializeSocket(server);
+
+// // const port = process.env.PORT || 4000;
+// // server.listen(port, "0.0.0.0", () => {
+// //   console.log(`🚀 Server started on port ${port}`);
+// //   console.log(`🔌 Socket.io available on path: /rpm-be/socket.io`);
+// //   console.log(`🌐 Health check: https://rmtrpm.duckdns.org/rpm-be/health`);
+// //   console.log(`🔧 Socket test: https://rmtrpm.duckdns.org/rpm-be/socket-test`);
+// // });
+
+// // server.js - COMPLETE UPDATED VERSION
+// require("dotenv").config();
+// console.log("Environment updated to:", process.env.NODE_ENV);
+
+// const express = require("express");
+// const http = require("http");
+// const cookieParser = require("cookie-parser");
+// const { initializeSocket, getIO } = require("./socket/socketServer");
+
+// const devDataRoutes = require("./routes/deviceData.routes");
+// const authRoutes = require("./routes/auth.routes");
+// const messageRoutes = require("./routes/messageRoutes");
+// const adminRoutes = require("./routes/admin.routes");
+// const swaggerUi = require("swagger-ui-express");
+// const settingsRoutes = require("./routes/settings.route");
+// const orgRoutes = require("./routes/org.routes");
+// const alertRoutes = require("./routes/alert.route");
+// const drRoutes = require("./routes/doctor.routes");
+// const patientRoutes = require("./routes/patient.routes");
+// const emailRoutes = require("./routes/emailRoute");
+// const fs = require("fs");
+// const path = require("path");
+
+// const app = express();
+// const server = http.createServer(app);
+
+// app.use(express.json());
+// app.use(cookieParser());
+// app.set("trust proxy", true);
+
+// // Enhanced CORS configuration
+// // const allowedOrigins = [
+// //   "http://localhost:5174",
+// //   "http://localhost:5173",
+// //   "http://localhost:5175",
+// //   "http://50.18.96.20",
+// //   "https://rmtrpm.duckdns.org",
+// //   "https://rmtrpm.duckdns.org/rpm",
+// //   "http://rmtrpm.duckdns.org",
+// //   "http://18.221.174.173",
+// // ];
+
+// // const cors = require("cors");
+// // app.use(
+// //   cors({
+// //     origin: function (origin, callback) {
+// //       // Allow requests with no origin
+// //       if (!origin) return callback(null, true);
+
+// //       // Allow all subdomains of duckdns.org and localhost
+// //       if (origin.includes("duckdns.org") || origin.includes("localhost")) {
+// //         return callback(null, true);
+// //       }
+
+// //       if (allowedOrigins.indexOf(origin) !== -1) {
+// //         return callback(null, true);
+// //       } else {
+// //         console.log("🔒 CORS blocked origin:", origin);
+// //         return callback(new Error("Not allowed by CORS"));
+// //       }
+// //     },
+// //     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+// //     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
+// //     credentials: true,
+// //   })
+// // );
+
+// // Enhanced CORS configuration - works for localhost, EC2 IP, DuckDNS
+// const allowedOrigins = [
+//   "localhost",
+//   "127.0.0.1",
+//   "18.221.174.173",       // EC2 public IP
+//   "rmtrpm.duckdns.org"
+// ];
+
+// const cors = require("cors");
+
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       // Allow requests with no origin (curl, Postman, mobile apps)
+//       if (!origin) return callback(null, true);
+
+//       // Parse origin host from full URL
+//       try {
+//         const url = new URL(origin);
+//         const hostname = url.hostname;
+
+//         // Allow if hostname matches allowedOrigins
+//         if (allowedOrigins.some(ao => hostname.includes(ao))) {
+//           return callback(null, true);
+//         }
+//       } catch (err) {
+//         console.log("🔒 Invalid origin URL:", origin);
+//         return callback(new Error("Not allowed by CORS"));
+//       }
+
+//       console.log("🔒 CORS blocked origin:", origin);
+//       return callback(new Error("Not allowed by CORS"));
+//     },
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
+//     credentials: true,
+//   })
+// );
+
 
 // app.use(express.urlencoded({ extended: true }));
 
@@ -67,7 +405,42 @@
 // app.use("/api/doctor", drRoutes);
 // app.use("/api/org", orgRoutes);
 // app.use("/api/patient", patientRoutes);
+// app.use("/api/email", emailRoutes);
+// // Add this temporary test route to check your current setup
+// // app.get("/debug-twilio", (req, res) => {
+// //   const accountSid = process.env.TWILIO_ACCOUNT_SID;
+// //   const authToken = process.env.TWILIO_AUTH_TOKEN;
+// //   const phoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
+// //   console.log("🔧 Current Twilio Configuration:");
+// //   console.log("Account SID:", accountSid);
+// //   console.log("Auth Token length:", authToken ? authToken.length : "Missing");
+// //   console.log("Phone Number:", phoneNumber);
+
+// //   // Check if Account SID is valid
+// //   const isValidSid =
+// //     accountSid && accountSid.startsWith("AC") && accountSid.length === 34;
+// //   const isHex = isValidSid
+// //     ? /^[A-Fa-f0-9]+$/.test(accountSid.substring(2))
+// //     : false;
+
+// //   res.json({
+// //     twilio_config: {
+// //       account_sid: accountSid,
+// //       account_sid_valid: isValidSid && isHex,
+// //       account_sid_length: accountSid ? accountSid.length : 0,
+// //       auth_token_set: !!authToken,
+// //       phone_number_set: !!phoneNumber,
+// //       issues: [],
+// //     },
+// //     analysis: {
+// //       current_sid_issue:
+// //         "Contains invalid character 'o' in hexadecimal portion",
+// //       expected_format: "AC + 32 hexadecimal characters (0-9, a-f only)",
+// //       example: "ACa1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
+// //     },
+// //   });
+// // });
 // // Health check endpoint
 // app.get("/health", (req, res) =>
 //   res.json({
@@ -75,11 +448,12 @@
 //     service: "rpm-api",
 //     timestamp: new Date().toISOString(),
 //     socket: "enabled",
+//     environment: process.env.NODE_ENV,
 //   })
 // );
 
-// // Add to your server.js
-// app.get("/rpm-be/socket-debug", (req, res) => {
+// // Socket debug endpoints
+// app.get("/socket-debug", (req, res) => {
 //   const io = getIO();
 //   const connectedSockets = io.engine.clientsCount;
 
@@ -87,32 +461,44 @@
 //     ok: true,
 //     message: "Socket.IO server debug info",
 //     connected_clients: connectedSockets,
-//     path: "/rpm-be/socket.io",
+//     path:
+//       process.env.NODE_ENV === "production"
+//         ? "/rpm-be/socket.io"
+//         : "/socket.io",
 //     transports: ["websocket", "polling"],
 //     timestamp: new Date().toISOString(),
+//     environment: process.env.NODE_ENV,
 //   });
 // });
 
+// // Add to your server.js
+// app.get("/rpm-be/test-socket", (req, res) => {
+//   console.log("✅ Test endpoint hit - Backend is running");
+//   console.log("🍪 Cookies:", req.headers.cookie);
+//   console.log("📋 Headers:", req.headers);
+
+//   res.json({
+//     status: "running",
+//     message: "Backend server is operational",
+//     cookies: req.headers.cookie ? "Present" : "Missing",
+//     timestamp: new Date().toISOString(),
+//   });
+// });
 // // Root endpoint redirect
 // app.get("/", (req, res) => {
-//   res.redirect("/rpm-be/health");
+//   res.redirect("/health");
 // });
 
 // // Swagger
-// const swaggerDocument = JSON.parse(
-//   fs.readFileSync(path.join(__dirname, "docs/swagger.json"), "utf8")
-// );
-
 // if (process.env.NODE_ENV === "development") {
-//   app.use(
-//     "/rpm-be/api-docs",
-//     swaggerUi.serve,
-//     swaggerUi.setup(swaggerDocument)
+//   const swaggerDocument = JSON.parse(
+//     fs.readFileSync(path.join(__dirname, "docs/swagger.json"), "utf8")
 //   );
+
+//   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 //   console.log(
-//     `✅ Swagger docs available at http://localhost:${
-//       process.env.PORT || 4000
-//     }/rpm-be/api-docs`
+//     `✅ Swagger docs available at http://localhost:${process.env.PORT || 4000
+//     }/api-docs`
 //   );
 // }
 
@@ -121,250 +507,18 @@
 //   res.status(404).json({ ok: false, message: "Not found" })
 // );
 
-// // Initialize Socket.io with the correct path
+// // Initialize Socket.io
 // initializeSocket(server);
 
 // const port = process.env.PORT || 4000;
 // server.listen(port, "0.0.0.0", () => {
 //   console.log(`🚀 Server started on port ${port}`);
-//   console.log(`🔌 Socket.io available on path: /rpm-be/socket.io`);
-//   console.log(`🌐 Health check: https://rmtrpm.duckdns.org/rpm-be/health`);
-//   console.log(`🔧 Socket test: https://rmtrpm.duckdns.org/rpm-be/socket-test`);
+//   console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
+//   console.log(
+//     `🔌 Socket path: ${process.env.NODE_ENV === "production" ? "/rpm-be/socket.io" : "/socket.io"
+//     }`
+//   );
+//   console.log(`🏥 Health check: http://localhost:${port}/health`);
+//   console.log(`🔧 Socket debug: http://localhost:${port}/socket-debug`);
+//   console.log(`🔧 Nginx test: http://localhost:${port}/nginx-test`);
 // });
-
-// server.js - COMPLETE UPDATED VERSION
-require("dotenv").config();
-console.log("Environment updated to:", process.env.NODE_ENV);
-
-const express = require("express");
-const http = require("http");
-const cookieParser = require("cookie-parser");
-const { initializeSocket, getIO } = require("./socket/socketServer");
-
-const devDataRoutes = require("./routes/deviceData.routes");
-const authRoutes = require("./routes/auth.routes");
-const messageRoutes = require("./routes/messageRoutes");
-const adminRoutes = require("./routes/admin.routes");
-const swaggerUi = require("swagger-ui-express");
-const settingsRoutes = require("./routes/settings.route");
-const orgRoutes = require("./routes/org.routes");
-const alertRoutes = require("./routes/alert.route");
-const drRoutes = require("./routes/doctor.routes");
-const patientRoutes = require("./routes/patient.routes");
-const emailRoutes = require("./routes/emailRoute");
-const fs = require("fs");
-const path = require("path");
-
-const app = express();
-const server = http.createServer(app);
-
-app.use(express.json());
-app.use(cookieParser());
-app.set("trust proxy", true);
-
-// Enhanced CORS configuration
-// const allowedOrigins = [
-//   "http://localhost:5174",
-//   "http://localhost:5173",
-//   "http://localhost:5175",
-//   "http://50.18.96.20",
-//   "https://rmtrpm.duckdns.org",
-//   "https://rmtrpm.duckdns.org/rpm",
-//   "http://rmtrpm.duckdns.org",
-//   "http://18.221.174.173",
-// ];
-
-// const cors = require("cors");
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
-//       // Allow requests with no origin
-//       if (!origin) return callback(null, true);
-
-//       // Allow all subdomains of duckdns.org and localhost
-//       if (origin.includes("duckdns.org") || origin.includes("localhost")) {
-//         return callback(null, true);
-//       }
-
-//       if (allowedOrigins.indexOf(origin) !== -1) {
-//         return callback(null, true);
-//       } else {
-//         console.log("🔒 CORS blocked origin:", origin);
-//         return callback(new Error("Not allowed by CORS"));
-//       }
-//     },
-//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-//     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
-//     credentials: true,
-//   })
-// );
-
-// Enhanced CORS configuration - works for localhost, EC2 IP, DuckDNS
-const allowedOrigins = [
-  "localhost",
-  "127.0.0.1",
-  "18.221.174.173",       // EC2 public IP
-  "rmtrpm.duckdns.org"
-];
-
-const cors = require("cors");
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (curl, Postman, mobile apps)
-      if (!origin) return callback(null, true);
-
-      // Parse origin host from full URL
-      try {
-        const url = new URL(origin);
-        const hostname = url.hostname;
-
-        // Allow if hostname matches allowedOrigins
-        if (allowedOrigins.some(ao => hostname.includes(ao))) {
-          return callback(null, true);
-        }
-      } catch (err) {
-        console.log("🔒 Invalid origin URL:", origin);
-        return callback(new Error("Not allowed by CORS"));
-      }
-
-      console.log("🔒 CORS blocked origin:", origin);
-      return callback(new Error("Not allowed by CORS"));
-    },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-user-id"],
-    credentials: true,
-  })
-);
-
-
-app.use(express.urlencoded({ extended: true }));
-
-// API routes - all under /rpm-be
-app.use("/api/messages", messageRoutes);
-app.use("/api/auth", authRoutes);
-app.use("/api/dev-data", devDataRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/settings", settingsRoutes);
-app.use("/api/alerts", alertRoutes);
-app.use("/api/doctor", drRoutes);
-app.use("/api/org", orgRoutes);
-app.use("/api/patient", patientRoutes);
-app.use("/api/email", emailRoutes);
-// Add this temporary test route to check your current setup
-// app.get("/debug-twilio", (req, res) => {
-//   const accountSid = process.env.TWILIO_ACCOUNT_SID;
-//   const authToken = process.env.TWILIO_AUTH_TOKEN;
-//   const phoneNumber = process.env.TWILIO_PHONE_NUMBER;
-
-//   console.log("🔧 Current Twilio Configuration:");
-//   console.log("Account SID:", accountSid);
-//   console.log("Auth Token length:", authToken ? authToken.length : "Missing");
-//   console.log("Phone Number:", phoneNumber);
-
-//   // Check if Account SID is valid
-//   const isValidSid =
-//     accountSid && accountSid.startsWith("AC") && accountSid.length === 34;
-//   const isHex = isValidSid
-//     ? /^[A-Fa-f0-9]+$/.test(accountSid.substring(2))
-//     : false;
-
-//   res.json({
-//     twilio_config: {
-//       account_sid: accountSid,
-//       account_sid_valid: isValidSid && isHex,
-//       account_sid_length: accountSid ? accountSid.length : 0,
-//       auth_token_set: !!authToken,
-//       phone_number_set: !!phoneNumber,
-//       issues: [],
-//     },
-//     analysis: {
-//       current_sid_issue:
-//         "Contains invalid character 'o' in hexadecimal portion",
-//       expected_format: "AC + 32 hexadecimal characters (0-9, a-f only)",
-//       example: "ACa1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
-//     },
-//   });
-// });
-// Health check endpoint
-app.get("/health", (req, res) =>
-  res.json({
-    ok: true,
-    service: "rpm-api",
-    timestamp: new Date().toISOString(),
-    socket: "enabled",
-    environment: process.env.NODE_ENV,
-  })
-);
-
-// Socket debug endpoints
-app.get("/socket-debug", (req, res) => {
-  const io = getIO();
-  const connectedSockets = io.engine.clientsCount;
-
-  res.json({
-    ok: true,
-    message: "Socket.IO server debug info",
-    connected_clients: connectedSockets,
-    path:
-      process.env.NODE_ENV === "production"
-        ? "/rpm-be/socket.io"
-        : "/socket.io",
-    transports: ["websocket", "polling"],
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-  });
-});
-
-// Add to your server.js
-app.get("/rpm-be/test-socket", (req, res) => {
-  console.log("✅ Test endpoint hit - Backend is running");
-  console.log("🍪 Cookies:", req.headers.cookie);
-  console.log("📋 Headers:", req.headers);
-
-  res.json({
-    status: "running",
-    message: "Backend server is operational",
-    cookies: req.headers.cookie ? "Present" : "Missing",
-    timestamp: new Date().toISOString(),
-  });
-});
-// Root endpoint redirect
-app.get("/", (req, res) => {
-  res.redirect("/health");
-});
-
-// Swagger
-if (process.env.NODE_ENV === "development") {
-  const swaggerDocument = JSON.parse(
-    fs.readFileSync(path.join(__dirname, "docs/swagger.json"), "utf8")
-  );
-
-  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-  console.log(
-    `✅ Swagger docs available at http://localhost:${process.env.PORT || 4000
-    }/api-docs`
-  );
-}
-
-// 404 handler
-app.use((req, res) =>
-  res.status(404).json({ ok: false, message: "Not found" })
-);
-
-// Initialize Socket.io
-initializeSocket(server);
-
-const port = process.env.PORT || 4000;
-server.listen(port, "0.0.0.0", () => {
-  console.log(`🚀 Server started on port ${port}`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
-  console.log(
-    `🔌 Socket path: ${process.env.NODE_ENV === "production" ? "/rpm-be/socket.io" : "/socket.io"
-    }`
-  );
-  console.log(`🏥 Health check: http://localhost:${port}/health`);
-  console.log(`🔧 Socket debug: http://localhost:${port}/socket-debug`);
-  console.log(`🔧 Nginx test: http://localhost:${port}/nginx-test`);
-});
