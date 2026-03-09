@@ -53,6 +53,23 @@ const getPatientVitalSignsService = async (patientId) => {
   const diastolic = data.diastolic || "--";
   const timestamp = data.timestamp || latestReading.created_at;
 
+  // Fetch doctor's custom thresholds for this patient
+  const [thresholdRows] = await db.query(
+    `SELECT das.* 
+     FROM doctor_alert_settings das
+     JOIN patient_doctor_assignments pda ON pda.doctor_id = das.doctor_id
+     WHERE pda.patient_id = ? 
+     LIMIT 1`,
+    [patientId]
+  );
+
+  const thresholds = thresholdRows[0] || {
+    systolic_high: 140,
+    systolic_low: 90,
+    diastolic_high: 90,
+    diastolic_low: 60,
+  };
+
   // Status calculation functions
   const getHeartRateStatus = (hr) => {
     if (hr === "--") return "no-data";
@@ -66,9 +83,13 @@ const getPatientVitalSignsService = async (patientId) => {
     if (sys === "--" || dia === "--") return "no-data";
     sys = parseInt(sys);
     dia = parseInt(dia);
-    if (sys < 120 && dia < 80) return "normal";
-    if (sys <= 139 && dia <= 89) return "warning";
-    return "critical";
+
+    if (sys > thresholds.systolic_high || dia > thresholds.diastolic_high)
+      return "critical";
+    if (sys < thresholds.systolic_low || dia < thresholds.diastolic_low)
+      return "warning";
+
+    return "normal";
   };
 
   const vitalSigns = {

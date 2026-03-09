@@ -6,8 +6,8 @@ const getPatientBPReadingsService = async (patientId) => {
       id,
       data,
       created_at as timestamp,
-      DATE(created_at) as date,
-      TIME(created_at) as time
+      DATE_FORMAT(created_at, '%Y-%m-%d') as date,
+      TIME_FORMAT(created_at, '%H:%i:%s') as time
      FROM dev_data 
      WHERE user_id = ? AND dev_type = 'bp'
      ORDER BY created_at DESC

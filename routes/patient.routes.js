@@ -4,8 +4,20 @@ const { authRequired } = require("../middleware/auth");
 const {
   getPatientBPReadingsController,
   getPatientLatestBPController,
+  getPatientOwnVitalSignsController,
+  getPatientOwnDeviceDataController,
+  getPatientDoctorAlertSettingsController,
 } = require("../controllers/patient.controller");
+
 const router = express.Router();
+
+// Middleware to ensure patient only requests their own data
+const verifyPatientOwnership = (req, res, next) => {
+  if (req.user && req.user.id == req.params.patientId) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: "Unauthorized to access this data." });
+};
 router.get("/test/patients/blood-pressure", async (req, res) => {
   try {
     const { userId } = req.query;
@@ -155,4 +167,25 @@ router.get(
   authRequired,
   getPatientLatestBPController
 );
+
+// Unified endpoints used by the VitalSigns component
+router.get(
+  "/patients/:patientId/vital-signs",
+  authRequired,
+  verifyPatientOwnership,
+  getPatientOwnVitalSignsController
+);
+router.get(
+  "/patients/:patientId/device-data",
+  authRequired,
+  verifyPatientOwnership,
+  getPatientOwnDeviceDataController
+);
+
+router.get(
+  "/alert-settings",
+  authRequired,
+  getPatientDoctorAlertSettingsController
+);
+
 module.exports = router;

@@ -358,19 +358,6 @@ server.listen(port, "0.0.0.0", () => {
 // //   })
 // // );
 
-// // Enhanced CORS configuration - works for localhost, EC2 IP, DuckDNS
-// const allowedOrigins = [
-//   "localhost",
-//   "127.0.0.1",
-//   "18.221.174.173",       // EC2 public IP
-//   "rmtrpm.duckdns.org"
-// ];
-
-// const cors = require("cors");
-
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
 //       // Allow requests with no origin (curl, Postman, mobile apps)
 //       if (!origin) return callback(null, true);
 

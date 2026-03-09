@@ -156,8 +156,14 @@ class MessageService {
     try {
       return await db("users")
         .select("users.id", "users.name", "users.email")
-        .leftJoin("role", "users.id", "role.user_id")
-        .where("role.role_type", "clinician");
+        .innerJoin("role", "users.id", "role.user_id")
+        .innerJoin(
+          "patient_doctor_assignments",
+          "users.id",
+          "patient_doctor_assignments.doctor_id"
+        )
+        .where("role.role_type", "clinician")
+        .where("patient_doctor_assignments.patient_id", patientId);
     } catch (error) {
       console.log(error);
       throw error;
