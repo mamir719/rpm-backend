@@ -48,7 +48,16 @@ async function findAllUsers() {
       u.is_active, 
       u.last_login, 
       u.organization_id as org_id,
-      r.role_type
+      r.role_type,
+      (SELECT COUNT(*) FROM patient_doctor_assignments WHERE doctor_id = u.id) as patient_count,
+      (SELECT GROUP_CONCAT(p.name SEPARATOR ', ') 
+       FROM patient_doctor_assignments pda 
+       JOIN users p ON pda.patient_id = p.id 
+       WHERE pda.doctor_id = u.id) as assigned_patients,
+      (SELECT GROUP_CONCAT(d.name SEPARATOR ', ') 
+       FROM patient_doctor_assignments pda 
+       JOIN users d ON pda.doctor_id = d.id 
+       WHERE pda.patient_id = u.id) as assigned_clinician
     FROM users u
     LEFT JOIN role r ON u.id = r.user_id
   `;
@@ -64,6 +73,9 @@ async function findAllUsers() {
     last_login: user.last_login,
     role_type: user.role_type || "user",
     org_id: user.org_id,
+    patient_count: user.patient_count || 0,
+    assigned_patients: user.assigned_patients ? user.assigned_patients.split(', ') : [],
+    assigned_clinician: user.assigned_clinician || null,
   }));
 }
 
@@ -71,7 +83,16 @@ async function findAllUsers() {
 async function findOrgUsersWithRoles(orgId) {
   const query = `
     SELECT u.id, u.username, u.email, u.name, u.phoneNumber, 
-           u.is_active, u.last_login, u.organization_id as org_id, r.role_type
+           u.is_active, u.last_login, u.organization_id as org_id, r.role_type,
+           (SELECT COUNT(*) FROM patient_doctor_assignments WHERE doctor_id = u.id) as patient_count,
+           (SELECT GROUP_CONCAT(p.name SEPARATOR ', ') 
+            FROM patient_doctor_assignments pda 
+            JOIN users p ON pda.patient_id = p.id 
+            WHERE pda.doctor_id = u.id) as assigned_patients,
+           (SELECT GROUP_CONCAT(d.name SEPARATOR ', ') 
+            FROM patient_doctor_assignments pda 
+            JOIN users d ON pda.doctor_id = d.id 
+            WHERE pda.patient_id = u.id) as assigned_clinician
     FROM users u
     LEFT JOIN role r ON u.id = r.user_id
     WHERE u.organization_id = ?
@@ -89,6 +110,9 @@ async function findOrgUsersWithRoles(orgId) {
     last_login: user.last_login,
     role_type: user.role_type || "user",
     org_id: user.org_id,
+    patient_count: user.patient_count || 0,
+    assigned_patients: user.assigned_patients ? user.assigned_patients.split(', ') : [],
+    assigned_clinician: user.assigned_clinician || null,
   }));
 }
 
